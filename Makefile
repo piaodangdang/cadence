@@ -40,6 +40,9 @@ MOCKGEN_BIN = $(BUILD)/bin/mockgen
 ENUMER_BIN = $(BUILD)/bin/enumer
 GOIMPORTS_BIN = $(BUILD)/bin/goimports
 GOLINT_BIN = $(BUILD)/bin/golint
+BUF_BIN = $(BUILD)/bin/buf
+GOGOSLICK_BIN = $(BUILD)/bin/protoc-gen-gogoslick
+PROTO_BIN = $(BUILD)/bin/protoc
 
 # downloads and builds a go-gettable tool, versioned by go.mod, and installs
 # it into the build folder, named the same as the last portion of the URL.
@@ -67,6 +70,22 @@ $(GOIMPORTS_BIN): go.mod
 $(GOLINT_BIN): go.mod
 	$(call get_tool,golang.org/x/lint/golint)
 
+$(BUF_BIN):
+	VERSION="0.36.0" && \
+	BINARY_NAME="buf" && \
+	curl -sSL \
+		"https://github.com/bufbuild/buf/releases/download/v$${VERSION}/$${BINARY_NAME}-$$(uname -s)-$$(uname -m)" \
+		-o "$(BUF_BIN)" && \
+	chmod +x "$(BUF_BIN)"
+
+$(GOGOSLICK_BIN): go.mod
+	$(call get_tool,github.com/gogo/protobuf/protoc-gen-gogoslick)
+
+$(PROTO_BIN): go.mod
+	VERSION="3.14.0" && \
+	curl -sSL https://github.com/protocolbuffers/protobuf/releases/download/v$${VERSION}/protoc-$${VERSION}-$$(uname -s)-$$(uname -m).zip -o $(PROTO_BIN).zip && \
+	unzip $(PROTO_BIN).zip -d $(PROTO_BIN)-files && \
+	cp $(PROTO_BIN)-files/bin/protoc $(PROTO_BIN)
 
 THRIFT_GENDIR=.gen/go
 THRIFT_SRCS := $(shell find idls -name '*.thrift')
@@ -143,14 +162,14 @@ PROTO_OUT := .gen/proto
 PROTO_FILES = $(shell find ./$(PROTO_ROOT) -name "*.proto" | grep -v "persistenceblobs")
 PROTO_DIRS = $(sort $(dir $(PROTO_FILES)))
 
-proto-lint:
-	cd $(PROTO_ROOT) && buf check lint
+proto-lint: $(BUF_BIN)
+	cd $(PROTO_ROOT) && ../$(BUF_BIN) check lint
 
-proto-compile:
+proto-compile: $(GOGOSLICK_BIN) $(PROTO_BIN)
 	mkdir -p $(PROTO_OUT)
 	$(foreach PROTO_DIR, $(PROTO_DIRS), \
 		protoc \
-			-I=$(PROTO_ROOT)/public -I=$(PROTO_ROOT)/internal \
+			-I=$(PROTO_ROOT)/public -I=$(PROTO_ROOT)/internal -I=$(PROTO_BIN)-files/include \
 			--gogoslick_out=Mgoogle/protobuf/wrappers.proto=github.com/gogo/protobuf/types,plugins=grpc,paths=source_relative:$(PROTO_OUT) \
 			$(PROTO_DIR)*.proto \
 		$(NEWLINE))
